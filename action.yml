@@ -1,0 +1,132 @@
+name: 'Pipery Terraform CI'
+description: 'CI pipeline for Terraform: SAST (tfsec) → SCA → lint (tflint) → validate → plan → version → release'
+inputs:
+  project_path:
+    description: 'Path to the Terraform root module.'
+    required: false
+    default: '.'
+  config_file:
+    description: 'Path to the pipery config file.'
+    required: false
+    default: '.github/pipery/config.yaml'
+  terraform_version:
+    description: 'Terraform CLI version to use.'
+    required: false
+    default: 'latest'
+  backend_config:
+    description: 'Comma-separated backend config vars (key=val).'
+    required: false
+    default: ''
+  var_file:
+    description: 'Path to a .tfvars file.'
+    required: false
+    default: ''
+  working_directory:
+    description: 'Working directory for Terraform commands.'
+    required: false
+    default: '.'
+  skip_sast:
+    description: 'Skip tfsec SAST scan.'
+    required: false
+    default: 'false'
+  skip_sca:
+    description: 'Skip SCA dependency scan.'
+    required: false
+    default: 'false'
+  skip_lint:
+    description: 'Skip tflint lint.'
+    required: false
+    default: 'false'
+  skip_validate:
+    description: 'Skip terraform validate.'
+    required: false
+    default: 'false'
+  skip_plan:
+    description: 'Skip terraform plan.'
+    required: false
+    default: 'false'
+  skip_version:
+    description: 'Skip version step.'
+    required: false
+    default: 'false'
+  skip_release:
+    description: 'Skip release step.'
+    required: false
+    default: 'false'
+  log_file:
+    description: 'Path to write the JSONL log file.'
+    required: false
+    default: 'pipery.jsonl'
+
+runs:
+  using: 'composite'
+  steps:
+  - name: Set up psh
+    uses: pipery-dev/pipery@v1
+
+  - name: Load config
+    shell: bash
+    run: src/read-config.sh
+    env:
+      INPUT_PROJECT_PATH: ${{ inputs.project_path }}
+      INPUT_CONFIG_FILE: ${{ inputs.config_file }}
+
+  - name: Sast
+    shell: bash
+    run: src/step-sast.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+  - name: Sca
+    shell: bash
+    run: src/step-sca.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+  - name: Lint
+    shell: bash
+    run: src/step-lint.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+  - name: Validate
+    shell: bash
+    run: src/step-validate.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+  - name: Plan
+    shell: bash
+    run: src/step-plan.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+  - name: Version
+    shell: bash
+    run: src/step-version.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+  - name: Release
+    shell: bash
+    run: src/step-release.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+  - name: Reintegrate
+    shell: bash
+    run: src/step-reintegrate.sh
+    env:
+      INPUT_PROJECT_PATH: ${ inputs.project_path }
+      INPUT_LOG_FILE: ${ inputs.log_file }
+
+branding:
+  icon: database
+  color: purple

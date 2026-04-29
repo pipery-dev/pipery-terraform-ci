@@ -1,0 +1,106 @@
+owner = "pipery-dev"
+action_name = "pipery-terraform-ci"
+title = "Pipery Terraform CI"
+description = "CI pipeline for Terraform: SAST (tfsec) → SCA → lint (tflint) → validate → plan → version → release"
+marketplace_category = "continuous-integration"
+author = "pipery-dev"
+action_type = "composite"
+default_branch = "main"
+version = "1.0.0"
+repository_visibility = "public"
+icon = "assets/icon.png"
+simple_icon = "terraform"
+test_command = ""
+test_project_path = "test-project"
+test_project_input = "project_path"
+test_log_path = "pipery.jsonl"
+test_log_success_values = ["success", "succeeded", "passed", "ok"]
+cleanup_paths = ["pipery.jsonl"]
+
+[[inputs]]
+name = "project_path"
+description = "Path to the Terraform root module."
+required = false
+default = "."
+
+[[inputs]]
+name = "config_file"
+description = "Path to the pipery config file."
+required = false
+default = ".github/pipery/config.yaml"
+
+[[inputs]]
+name = "terraform_version"
+description = "Terraform CLI version to use."
+required = false
+default = "latest"
+
+[[inputs]]
+name = "backend_config"
+description = "Comma-separated backend config vars (key=val)."
+required = false
+default = ""
+
+[[inputs]]
+name = "var_file"
+description = "Path to a .tfvars file."
+required = false
+default = ""
+
+[[inputs]]
+name = "working_directory"
+description = "Working directory for Terraform commands."
+required = false
+default = "."
+
+[[inputs]]
+name = "skip_sast"
+description = "Skip tfsec SAST scan."
+required = false
+default = "false"
+
+[[inputs]]
+name = "skip_sca"
+description = "Skip SCA dependency scan."
+required = false
+default = "false"
+
+[[inputs]]
+name = "skip_lint"
+description = "Skip tflint lint."
+required = false
+default = "false"
+
+[[inputs]]
+name = "skip_validate"
+description = "Skip terraform validate."
+required = false
+default = "false"
+
+[[inputs]]
+name = "skip_plan"
+description = "Skip terraform plan."
+required = false
+default = "false"
+
+[[inputs]]
+name = "skip_version"
+description = "Skip version step."
+required = false
+default = "false"
+
+[[inputs]]
+name = "skip_release"
+description = "Skip release step."
+required = false
+default = "false"
+
+[[inputs]]
+name = "log_file"
+description = "Path to write the JSONL log file."
+required = false
+default = "pipery.jsonl"
+
+[[test_log_required_fields]]
+name = "event"
+value = "deploy"
