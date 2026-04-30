@@ -7,7 +7,7 @@ CI pipeline for Terraform: SAST (tfsec) → SCA → lint (tflint) → validate �
 - Owner: `pipery-dev`
 - Repository: `pipery-terraform-ci`
 - Marketplace category: `continuous-integration`
-- Current version: `2.0.0`
+- Current version: `3.0.0`
 
 ## Usage
 
@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pipery-dev/pipery-terraform-ci@v2
+      - uses: pipery-dev/pipery-terraform-ci@v3
         with:
           project_path: .
           config_file: .github/pipery/config.yaml
