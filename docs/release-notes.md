@@ -1,3 +1,13 @@
+# Release v2.0.0
+
+Repository: `pipery-dev/pipery-terraform-ci`
+
+## Deployment
+
+Reference this release as `pipery-dev/pipery-terraform-ci@v2.0.0`, `pipery-dev/pipery-terraform-ci@v2.0`, or `pipery-dev/pipery-terraform-ci@v2`.
+
+## Changelog
+
 # Changelog
 
 All notable changes to this project will be documented in this file.

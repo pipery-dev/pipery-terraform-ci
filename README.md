@@ -1,56 +1,81 @@
 # Pipery Terraform CI
 
-Reusable GitHub Action for Terraform CI with structured logging via [Pipery](https://pipery.dev).
+CI pipeline for Terraform: SAST (tfsec) → SCA → lint (tflint) → validate → plan → version → release
 
-[![GitHub Marketplace](https://img.shields.io/badge/Marketplace-Pipery%20Terraform%20CI-blue?logo=github)](https://github.com/marketplace/actions/pipery-terraform-ci)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue)](CHANGELOG.md)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+## Status
+
+- Owner: `pipery-dev`
+- Repository: `pipery-terraform-ci`
+- Marketplace category: `continuous-integration`
+- Current version: `2.0.0`
 
 ## Usage
 
 ```yaml
-name: CI
-on:
-  push:
-    branches: [main]
+name: Example
+on: [push]
 
 jobs:
-  ci:
-    uses: pipery-dev/pipery-terraform-ci@v1
-    with:
-      project_path: .
-    secrets: inherit
+  run-action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pipery-dev/pipery-terraform-ci@v2
+        with:
+          project_path: .
+          config_file: .github/pipery/config.yaml
+          terraform_version: latest
+          backend_config: 
+          var_file: 
+          working_directory: .
+          skip_sast: false
+          skip_sca: false
+          skip_lint: false
+          skip_validate: false
+          skip_plan: false
+          skip_version: false
+          skip_release: false
+          log_file: pipery.jsonl
 ```
-
-## Pipeline steps
-
-SAST (tfsec) → SCA → lint (tflint) → validate → plan → version → release
-
-Every step is logged to `pipery.jsonl` via psh and uploaded as a GitHub Actions artifact.
 
 ## Inputs
 
-| Input | Description | Default |
-|---|---|---|
-| `project_path` | Path to the Terraform root module. | `.` |
-| `config_file` | Path to the pipery config file. | `.github/pipery/config.yaml` |
-| `terraform_version` | Terraform CLI version to use. | `latest` |
-| `backend_config` | Comma-separated backend config vars (key=val). | `` |
-| `var_file` | Path to a .tfvars file. | `` |
-| `working_directory` | Working directory for Terraform commands. | `.` |
-| `skip_sast` | Skip tfsec SAST scan. | `false` |
-| `skip_sca` | Skip SCA dependency scan. | `false` |
-| `skip_lint` | Skip tflint lint. | `false` |
-| `skip_validate` | Skip terraform validate. | `false` |
-| `skip_plan` | Skip terraform plan. | `false` |
-| `skip_version` | Skip version step. | `false` |
-| `skip_release` | Skip release step. | `false` |
-| `log_file` | Path to write the JSONL log file. | `pipery.jsonl` |
+| Name | Required | Default | Description |
+| --- | --- | --- | --- |
+| `project_path` | no | `.` | Path to the Terraform root module. |
+| `config_file` | no | `.github/pipery/config.yaml` | Path to the pipery config file. |
+| `terraform_version` | no | `latest` | Terraform CLI version to use. |
+| `backend_config` | no | `` | Comma-separated backend config vars (key=val). |
+| `var_file` | no | `` | Path to a .tfvars file. |
+| `working_directory` | no | `.` | Working directory for Terraform commands. |
+| `skip_sast` | no | `false` | Skip tfsec SAST scan. |
+| `skip_sca` | no | `false` | Skip SCA dependency scan. |
+| `skip_lint` | no | `false` | Skip tflint lint. |
+| `skip_validate` | no | `false` | Skip terraform validate. |
+| `skip_plan` | no | `false` | Skip terraform plan. |
+| `skip_version` | no | `false` | Skip version step. |
+| `skip_release` | no | `false` | Skip release step. |
+| `log_file` | no | `pipery.jsonl` | Path to write the JSONL log file. |
 
-## Observability
+## Outputs
 
-Each run produces a `pipery.jsonl` file. Upload it as an artifact and inspect it with the [Pipery Dashboard](https://dash.pipery.dev).
+No outputs.
 
-## License
+## Development
 
-MIT — see [LICENSE](LICENSE).
+This repository is managed with `pipery-tooling`.
+
+```bash
+pipery-actions test --repo .
+pipery-actions docs --repo .
+pipery-actions release --repo . --dry-run
+```
+
+By default, `pipery-actions test --repo .` executes the action against `test-project` and validates `pipery.jsonl`.
+
+## Marketplace Release Flow
+
+1. Update the implementation and changelog.
+2. Run `pipery-actions release --repo .`.
+3. Push the created git tag and major tag alias.
+4. Publish the GitHub release.
