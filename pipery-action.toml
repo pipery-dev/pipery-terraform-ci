@@ -88,8 +88,20 @@ required = false
 default = "false"
 
 [[inputs]]
+name = "skip_versioning"
+description = "Skip versioning step."
+required = false
+default = "false"
+
+[[inputs]]
 name = "skip_release"
 description = "Skip release step."
+required = false
+default = "false"
+
+[[inputs]]
+name = "skip_reintegration"
+description = "Skip reintegration step."
 required = false
 default = "false"
 
@@ -101,4 +113,4 @@ default = "pipery.jsonl"
 
 [[test_log_required_fields]]
 name = "event"
-value = "deploy"
+value = "build"

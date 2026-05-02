@@ -49,8 +49,16 @@ inputs:
     description: 'Skip version step.'
     required: false
     default: 'false'
+  skip_versioning:
+    description: 'Skip versioning step.'
+    required: false
+    default: 'false'
   skip_release:
     description: 'Skip release step.'
+    required: false
+    default: 'false'
+  skip_reintegration:
+    description: 'Skip reintegration step.'
     required: false
     default: 'false'
   log_file:
