@@ -1,0 +1,212 @@
+# GitLab CI Pipeline for pipery-terraform-ci
+# Terraform validation, linting, security scanning, and planning
+
+variables:
+  PROJECT_PATH: "."
+  CONFIG_FILE: ".github/pipery/config.yaml"
+  TERRAFORM_VERSION: "latest"
+  WORKING_DIRECTORY: "."
+  BACKEND_CONFIG: ""
+  VAR_FILE: ""
+  SKIP_SAST: "false"
+  SKIP_SCA: "false"
+  SKIP_LINT: "false"
+  SKIP_VALIDATE: "false"
+  SKIP_PLAN: "false"
+  SKIP_VERSIONING: "false"
+  SKIP_RELEASE: "false"
+  SKIP_REINTEGRATION: "false"
+  LOG_FILE: "pipery.jsonl"
+  TARGET_BRANCH: "main"
+
+stages:
+  - checkout
+  - setup
+  - sast
+  - sca
+  - lint
+  - validate
+  - plan
+  - versioning
+  - release
+  - reintegration
+  - logs
+
+checkout:
+  stage: checkout
+  image: alpine:latest
+  script:
+    - echo "Repository checked out"
+
+setup:
+  stage: setup
+  image: hashicorp/terraform:latest
+  script:
+    - terraform version
+    - cd $PROJECT_PATH/$WORKING_DIRECTORY
+    - echo "Initializing Terraform..."
+    - |
+      INIT_FLAGS=""
+      if [ -n "$BACKEND_CONFIG" ]; then
+        IFS=',' read -ra CONFIGS <<< "$BACKEND_CONFIG"
+        for config in "${CONFIGS[@]}"; do
+          INIT_FLAGS="$INIT_FLAGS -backend-config=$config"
+        done
+      fi
+    - terraform init $INIT_FLAGS -no-color
+    - echo "Setup complete"
+
+sast_scan:
+  stage: sast
+  image: aquasec/tfsec:latest
+  script:
+    - cd $PROJECT_PATH/$WORKING_DIRECTORY
+    - echo "Running tfsec SAST scan..."
+    - tfsec . -format json > tfsec-report.json || true
+    - tfsec . -format sarif > tfsec.sarif || true
+  allow_failure: true
+  rules:
+    - if: '$SKIP_SAST == "true"'
+      when: never
+    - when: on_success
+  artifacts:
+    paths:
+      - tfsec-report.json
+      - tfsec.sarif
+    expire_in: 30 days
+
+sca_scan:
+  stage: sca
+  image: python:3.11-alpine
+  before_script:
+    - pip install pipery-tooling
+  script:
+    - echo "Running Terraform SCA scan..."
+    - pipery-tooling sca --project-path $PROJECT_PATH --config $CONFIG_FILE --log-file $LOG_FILE
+  allow_failure: true
+  rules:
+    - if: '$SKIP_SCA == "true"'
+      when: never
+    - when: on_success
+  artifacts:
+    paths:
+      - $LOG_FILE
+    expire_in: 30 days
+
+lint:
+  stage: lint
+  image: ghcr.io/terraform-linters/tflint:latest
+  script:
+    - cd $PROJECT_PATH/$WORKING_DIRECTORY
+    - echo "Running tflint..."
+    - tflint --init
+    - tflint . --format json > tflint-report.json || true
+  allow_failure: true
+  rules:
+    - if: '$SKIP_LINT == "true"'
+      when: never
+    - when: on_success
+  artifacts:
+    paths:
+      - tflint-report.json
+    expire_in: 30 days
+
+validate:
+  stage: validate
+  image: hashicorp/terraform:latest
+  dependencies:
+    - setup
+  script:
+    - cd $PROJECT_PATH/$WORKING_DIRECTORY
+    - echo "Validating Terraform configuration..."
+    - terraform validate -no-color
+  rules:
+    - if: '$SKIP_VALIDATE == "true"'
+      when: never
+    - when: on_success
+
+plan:
+  stage: plan
+  image: hashicorp/terraform:latest
+  dependencies:
+    - validate
+  script:
+    - cd $PROJECT_PATH/$WORKING_DIRECTORY
+    - echo "Planning Terraform changes..."
+    - |
+      PLAN_FLAGS=""
+      [ -n "$VAR_FILE" ] && PLAN_FLAGS="$PLAN_FLAGS -var-file=$VAR_FILE"
+      [ -n "$BACKEND_CONFIG" ] && {
+        IFS=',' read -ra CONFIGS <<< "$BACKEND_CONFIG"
+        for config in "${CONFIGS[@]}"; do
+          PLAN_FLAGS="$PLAN_FLAGS -backend-config=$config"
+        done
+      }
+    - terraform plan -no-color $PLAN_FLAGS -out=tfplan
+    - terraform show -no-color tfplan > tfplan.txt
+  rules:
+    - if: '$SKIP_PLAN == "true"'
+      when: never
+    - when: on_success
+  artifacts:
+    paths:
+      - tfplan
+      - tfplan.txt
+    expire_in: 30 days
+
+versioning:
+  stage: versioning
+  image: python:3.11-alpine
+  before_script:
+    - pip install pipery-tooling
+  script:
+    - echo "Running versioning step..."
+    - pipery-tooling version --project-path $PROJECT_PATH --log-file $LOG_FILE
+    - echo "Plan summary:" > version_info.txt
+    - echo "Terraform version: $(terraform version | head -1)" >> version_info.txt
+  rules:
+    - if: '$SKIP_VERSIONING == "true"'
+      when: never
+    - when: on_success
+  artifacts:
+    paths:
+      - version_info.txt
+      - $LOG_FILE
+    expire_in: 30 days
+
+release:
+  stage: release
+  image: hashicorp/terraform:latest
+  script:
+    - echo "Release step - plan is persisted as artifact"
+    - echo "Terraform changes planned and ready for manual apply"
+  rules:
+    - if: '$SKIP_RELEASE == "true"'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == $TARGET_BRANCH'
+      when: manual
+
+reintegration:
+  stage: reintegration
+  image: alpine:latest
+  script:
+    - echo "Reintegration step for drift detection"
+  rules:
+    - if: '$SKIP_REINTEGRATION == "true"'
+      when: never
+    - when: manual
+  allow_failure: true
+
+publish_logs:
+  stage: logs
+  image: alpine:latest
+  script:
+    - echo "Terraform pipeline complete"
+  artifacts:
+    paths:
+      - $LOG_FILE
+      - version_info.txt
+      - tfplan
+      - tfplan.txt
+    expire_in: 90 days
+  when: always
