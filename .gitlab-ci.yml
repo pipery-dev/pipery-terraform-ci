@@ -3,7 +3,7 @@
 
 variables:
   PROJECT_PATH: "."
-  CONFIG_FILE: ".github/pipery/config.yaml"
+  CONFIG_FILE: ".pipery/config.yaml"
   TERRAFORM_VERSION: "latest"
   WORKING_DIRECTORY: "."
   BACKEND_CONFIG: ""
