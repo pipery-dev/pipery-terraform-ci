@@ -25,13 +25,17 @@ definitions:
         name: Setup Terraform Environment
         image: hashicorp/terraform:latest
         script:
-          # Refactored: Call shared script instead of inline logic
-          - bash ./src/setup-psh.sh
-        env:
-          INPUT_PROJECT_PATH: ${PROJECT_PATH:-.}
-          INPUT_WORKING_DIRECTORY: ${WORKING_DIRECTORY:-.}
-          INPUT_BACKEND_CONFIG: ${BACKEND_CONFIG}
-          INPUT_LOG_FILE: ${LOG_FILE:-pipery.jsonl}
+          - terraform version
+          - cd "${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}"
+          - |
+            if [ -n "${BACKEND_CONFIG:-}" ]; then
+              terraform init -backend-config="${BACKEND_CONFIG}"
+            else
+              terraform init
+            fi
+        artifacts:
+          - "${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}/.terraform/"
+          - "${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}/.terraform.lock.hcl"
 
     - step: &sast-scan
         name: SAST Security Scan

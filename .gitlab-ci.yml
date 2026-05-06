@@ -13,6 +13,7 @@ variables:
   SKIP_LINT: "false"
   SKIP_VALIDATE: "false"
   SKIP_PLAN: "false"
+  SKIP_VERSION: "false"
   SKIP_VERSIONING: "false"
   SKIP_RELEASE: "false"
   SKIP_REINTEGRATION: "false"
@@ -42,13 +43,14 @@ setup:
   stage: setup
   image: hashicorp/terraform:latest
   script:
-    # Refactored: Call shared script instead of inline logic
-    - bash ./src/setup-psh.sh
-  env:
-    INPUT_PROJECT_PATH: $PROJECT_PATH
-    INPUT_WORKING_DIRECTORY: $WORKING_DIRECTORY
-    INPUT_BACKEND_CONFIG: $BACKEND_CONFIG
-    INPUT_LOG_FILE: $LOG_FILE
+    - terraform version
+    - cd "${PROJECT_PATH}/${WORKING_DIRECTORY}"
+    - terraform init ${BACKEND_CONFIG:+-backend-config="${BACKEND_CONFIG}"}
+  artifacts:
+    paths:
+      - "${PROJECT_PATH}/${WORKING_DIRECTORY}/.terraform/"
+      - "${PROJECT_PATH}/${WORKING_DIRECTORY}/.terraform.lock.hcl"
+    expire_in: 1 day
 
 sast_scan:
   stage: sast
