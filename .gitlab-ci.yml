@@ -42,28 +42,24 @@ setup:
   stage: setup
   image: hashicorp/terraform:latest
   script:
-    - terraform version
-    - cd $PROJECT_PATH/$WORKING_DIRECTORY
-    - echo "Initializing Terraform..."
-    - |
-      INIT_FLAGS=""
-      if [ -n "$BACKEND_CONFIG" ]; then
-        IFS=',' read -ra CONFIGS <<< "$BACKEND_CONFIG"
-        for config in "${CONFIGS[@]}"; do
-          INIT_FLAGS="$INIT_FLAGS -backend-config=$config"
-        done
-      fi
-    - terraform init $INIT_FLAGS -no-color
-    - echo "Setup complete"
+    # Refactored: Call shared script instead of inline logic
+    - bash ./src/setup-psh.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_WORKING_DIRECTORY: $WORKING_DIRECTORY
+    INPUT_BACKEND_CONFIG: $BACKEND_CONFIG
+    INPUT_LOG_FILE: $LOG_FILE
 
 sast_scan:
   stage: sast
   image: aquasec/tfsec:latest
   script:
-    - cd $PROJECT_PATH/$WORKING_DIRECTORY
-    - echo "Running tfsec SAST scan..."
-    - tfsec . -format json > tfsec-report.json || true
-    - tfsec . -format sarif > tfsec.sarif || true
+    # Refactored: Call shared script instead of inline logic
+    - bash ./src/step-sast.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_WORKING_DIRECTORY: $WORKING_DIRECTORY
+    INPUT_LOG_FILE: $LOG_FILE
   allow_failure: true
   rules:
     - if: '$SKIP_SAST == "true"'
@@ -78,11 +74,13 @@ sast_scan:
 sca_scan:
   stage: sca
   image: python:3.11-alpine
-  before_script:
-    - pip install pipery-tooling
   script:
-    - echo "Running Terraform SCA scan..."
-    - pipery-tooling sca --project-path $PROJECT_PATH --config $CONFIG_FILE --log-file $LOG_FILE
+    # Refactored: Call shared script instead of inline logic
+    - bash ./src/step-sca.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_CONFIG_FILE: $CONFIG_FILE
+    INPUT_LOG_FILE: $LOG_FILE
   allow_failure: true
   rules:
     - if: '$SKIP_SCA == "true"'
@@ -97,10 +95,12 @@ lint:
   stage: lint
   image: ghcr.io/terraform-linters/tflint:latest
   script:
-    - cd $PROJECT_PATH/$WORKING_DIRECTORY
-    - echo "Running tflint..."
-    - tflint --init
-    - tflint . --format json > tflint-report.json || true
+    # Refactored: Call shared script instead of inline logic
+    - bash ./src/step-lint.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_WORKING_DIRECTORY: $WORKING_DIRECTORY
+    INPUT_LOG_FILE: $LOG_FILE
   allow_failure: true
   rules:
     - if: '$SKIP_LINT == "true"'
@@ -117,9 +117,12 @@ validate:
   dependencies:
     - setup
   script:
-    - cd $PROJECT_PATH/$WORKING_DIRECTORY
-    - echo "Validating Terraform configuration..."
-    - terraform validate -no-color
+    # Refactored: Call shared script instead of inline logic
+    - bash ./src/step-validate.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_WORKING_DIRECTORY: $WORKING_DIRECTORY
+    INPUT_LOG_FILE: $LOG_FILE
   rules:
     - if: '$SKIP_VALIDATE == "true"'
       when: never
@@ -131,19 +134,14 @@ plan:
   dependencies:
     - validate
   script:
-    - cd $PROJECT_PATH/$WORKING_DIRECTORY
-    - echo "Planning Terraform changes..."
-    - |
-      PLAN_FLAGS=""
-      [ -n "$VAR_FILE" ] && PLAN_FLAGS="$PLAN_FLAGS -var-file=$VAR_FILE"
-      [ -n "$BACKEND_CONFIG" ] && {
-        IFS=',' read -ra CONFIGS <<< "$BACKEND_CONFIG"
-        for config in "${CONFIGS[@]}"; do
-          PLAN_FLAGS="$PLAN_FLAGS -backend-config=$config"
-        done
-      }
-    - terraform plan -no-color $PLAN_FLAGS -out=tfplan
-    - terraform show -no-color tfplan > tfplan.txt
+    # Refactored: Call shared script instead of inline logic
+    - bash ./src/step-plan.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_WORKING_DIRECTORY: $WORKING_DIRECTORY
+    INPUT_VAR_FILE: $VAR_FILE
+    INPUT_BACKEND_CONFIG: $BACKEND_CONFIG
+    INPUT_LOG_FILE: $LOG_FILE
   rules:
     - if: '$SKIP_PLAN == "true"'
       when: never
@@ -157,13 +155,12 @@ plan:
 versioning:
   stage: versioning
   image: python:3.11-alpine
-  before_script:
-    - pip install pipery-tooling
   script:
-    - echo "Running versioning step..."
-    - pipery-tooling version --project-path $PROJECT_PATH --log-file $LOG_FILE
-    - echo "Plan summary:" > version_info.txt
-    - echo "Terraform version: $(terraform version | head -1)" >> version_info.txt
+    # Refactored: Call shared script instead of inline logic
+    - bash ./src/step-version.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_LOG_FILE: $LOG_FILE
   rules:
     - if: '$SKIP_VERSIONING == "true"'
       when: never
@@ -178,8 +175,11 @@ release:
   stage: release
   image: hashicorp/terraform:latest
   script:
-    - echo "Release step - plan is persisted as artifact"
-    - echo "Terraform changes planned and ready for manual apply"
+    # Refactored: Call shared script instead of inline logic
+    - bash ./src/step-release.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_LOG_FILE: $LOG_FILE
   rules:
     - if: '$SKIP_RELEASE == "true"'
       when: never
@@ -190,7 +190,11 @@ reintegration:
   stage: reintegration
   image: alpine:latest
   script:
-    - echo "Reintegration step for drift detection"
+    # Refactored: Call shared script instead of inline logic
+    - bash ./src/step-reintegrate.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_LOG_FILE: $LOG_FILE
   rules:
     - if: '$SKIP_REINTEGRATION == "true"'
       when: never

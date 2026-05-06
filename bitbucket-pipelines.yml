@@ -25,30 +25,24 @@ definitions:
         name: Setup Terraform Environment
         image: hashicorp/terraform:latest
         script:
-          - echo "Setting up Terraform CI environment..."
-          - terraform version
-          - cd ${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}
-          - echo "Initializing Terraform..."
-          - |
-            INIT_FLAGS=""
-            if [ -n "$BACKEND_CONFIG" ]; then
-              IFS=',' read -ra CONFIGS <<< "$BACKEND_CONFIG"
-              for config in "${CONFIGS[@]}"; do
-                INIT_FLAGS="$INIT_FLAGS -backend-config=$config"
-              done
-            fi
-          - terraform init $INIT_FLAGS -no-color
-          - echo "Setup complete"
+          # Refactored: Call shared script instead of inline logic
+          - bash ./src/setup-psh.sh
+        env:
+          INPUT_PROJECT_PATH: ${PROJECT_PATH:-.}
+          INPUT_WORKING_DIRECTORY: ${WORKING_DIRECTORY:-.}
+          INPUT_BACKEND_CONFIG: ${BACKEND_CONFIG}
+          INPUT_LOG_FILE: ${LOG_FILE:-pipery.jsonl}
 
     - step: &sast-scan
         name: SAST Security Scan
         image: aquasec/tfsec:latest
         script:
-          - echo "Running tfsec SAST scan..."
-          - cd ${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}
-          - tfsec . -format json > tfsec-report.json || true
-          - tfsec . -format sarif > tfsec.sarif || true
-          - echo "SAST scan complete"
+          # Refactored: Call shared script instead of inline logic
+          - bash ./src/step-sast.sh
+        env:
+          INPUT_PROJECT_PATH: ${PROJECT_PATH:-.}
+          INPUT_WORKING_DIRECTORY: ${WORKING_DIRECTORY:-.}
+          INPUT_LOG_FILE: ${LOG_FILE:-pipery.jsonl}
         artifacts:
           - tfsec-report.json
           - tfsec.sarif
@@ -57,14 +51,12 @@ definitions:
         name: SCA Dependency Scan
         image: python:3.11-alpine
         script:
-          - echo "Running SCA scan using pipery-tooling..."
-          - pip install --quiet pipery-tooling
-          - |
-            pipery-tooling sca \
-              --project-path ${PROJECT_PATH:-.} \
-              --config ${CONFIG_FILE:-.pipery/config.yaml} \
-              --log-file ${LOG_FILE:-pipery.jsonl}
-          - echo "SCA scan complete"
+          # Refactored: Call shared script instead of inline logic
+          - bash ./src/step-sca.sh
+        env:
+          INPUT_PROJECT_PATH: ${PROJECT_PATH:-.}
+          INPUT_CONFIG_FILE: ${CONFIG_FILE:-.pipery/config.yaml}
+          INPUT_LOG_FILE: ${LOG_FILE:-pipery.jsonl}
         artifacts:
           - ${LOG_FILE:-pipery.jsonl}
 
@@ -72,11 +64,12 @@ definitions:
         name: Terraform Linting
         image: ghcr.io/terraform-linters/tflint:latest
         script:
-          - echo "Running tflint..."
-          - cd ${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}
-          - tflint --init
-          - tflint . --format json > tflint-report.json || true
-          - echo "Lint stage complete"
+          # Refactored: Call shared script instead of inline logic
+          - bash ./src/step-lint.sh
+        env:
+          INPUT_PROJECT_PATH: ${PROJECT_PATH:-.}
+          INPUT_WORKING_DIRECTORY: ${WORKING_DIRECTORY:-.}
+          INPUT_LOG_FILE: ${LOG_FILE:-pipery.jsonl}
         artifacts:
           - tflint-report.json
 
@@ -84,29 +77,25 @@ definitions:
         name: Validate Terraform Configuration
         image: hashicorp/terraform:latest
         script:
-          - echo "Validating Terraform configuration..."
-          - cd ${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}
-          - terraform validate -no-color
-          - echo "Validation complete"
+          # Refactored: Call shared script instead of inline logic
+          - bash ./src/step-validate.sh
+        env:
+          INPUT_PROJECT_PATH: ${PROJECT_PATH:-.}
+          INPUT_WORKING_DIRECTORY: ${WORKING_DIRECTORY:-.}
+          INPUT_LOG_FILE: ${LOG_FILE:-pipery.jsonl}
 
     - step: &plan-step
         name: Plan Terraform Changes
         image: hashicorp/terraform:latest
         script:
-          - echo "Planning Terraform changes..."
-          - cd ${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}
-          - |
-            PLAN_FLAGS=""
-            [ -n "$VAR_FILE" ] && PLAN_FLAGS="$PLAN_FLAGS -var-file=$VAR_FILE"
-            [ -n "$BACKEND_CONFIG" ] && {
-              IFS=',' read -ra CONFIGS <<< "$BACKEND_CONFIG"
-              for config in "${CONFIGS[@]}"; do
-                PLAN_FLAGS="$PLAN_FLAGS -backend-config=$config"
-              done
-            }
-          - terraform plan -no-color $PLAN_FLAGS -out=tfplan
-          - terraform show -no-color tfplan > tfplan.txt
-          - echo "Plan complete"
+          # Refactored: Call shared script instead of inline logic
+          - bash ./src/step-plan.sh
+        env:
+          INPUT_PROJECT_PATH: ${PROJECT_PATH:-.}
+          INPUT_WORKING_DIRECTORY: ${WORKING_DIRECTORY:-.}
+          INPUT_VAR_FILE: ${VAR_FILE}
+          INPUT_BACKEND_CONFIG: ${BACKEND_CONFIG}
+          INPUT_LOG_FILE: ${LOG_FILE:-pipery.jsonl}
         artifacts:
           - tfplan
           - tfplan.txt
@@ -115,15 +104,11 @@ definitions:
         name: Version & Summary
         image: python:3.11-alpine
         script:
-          - echo "Running versioning step..."
-          - pip install --quiet pipery-tooling
-          - |
-            pipery-tooling version \
-              --project-path ${PROJECT_PATH:-.} \
-              --log-file ${LOG_FILE:-pipery.jsonl}
-          - echo "Plan summary:" > version_info.txt
-          - echo "Terraform version: $(terraform version | head -1)" >> version_info.txt
-          - cat version_info.txt
+          # Refactored: Call shared script instead of inline logic
+          - bash ./src/step-version.sh
+        env:
+          INPUT_PROJECT_PATH: ${PROJECT_PATH:-.}
+          INPUT_LOG_FILE: ${LOG_FILE:-pipery.jsonl}
         artifacts:
           - version_info.txt
           - ${LOG_FILE:-pipery.jsonl}
@@ -133,23 +118,22 @@ definitions:
         image: alpine:latest
         trigger: manual
         script:
-          - echo "Release step - plan is persisted as artifact"
-          - echo "Terraform changes planned and ready for manual apply"
-          - echo "Review tfplan and tfplan.txt artifacts before applying"
-          - echo "Release complete"
+          # Refactored: Call shared script instead of inline logic
+          - bash ./src/step-release.sh
+        env:
+          INPUT_PROJECT_PATH: ${PROJECT_PATH:-.}
+          INPUT_LOG_FILE: ${LOG_FILE:-pipery.jsonl}
 
     - step: &reintegration-step
         name: Reintegration to Target Branch
         image: alpine:latest
         trigger: manual
         script:
-          - echo "Reintegration step for drift detection..."
-          - |
-            if [ -z "$GITHUB_TOKEN" ]; then
-              echo "Skipping reintegration: GITHUB_TOKEN not set"
-              exit 0
-            fi
-          - echo "Reintegration complete"
+          # Refactored: Call shared script instead of inline logic
+          - bash ./src/step-reintegrate.sh
+        env:
+          INPUT_PROJECT_PATH: ${PROJECT_PATH:-.}
+          INPUT_LOG_FILE: ${LOG_FILE:-pipery.jsonl}
 
     - step: &logs-step
         name: Collect & Archive Logs
