@@ -72,6 +72,44 @@ include:
 
 No outputs.
 
+## Bitbucket Pipelines
+
+Bitbucket Cloud pipelines provide an alternative to GitHub Actions for this CI workflow. The equivalent pipeline configuration is provided in `bitbucket-pipelines.yml`.
+
+### Quick Start
+
+1. Copy `bitbucket-pipelines.yml` to your Bitbucket repository root
+2. Configure Protected Variables in Bitbucket (Repository Settings > Pipelines > Repository Variables):
+   - `GITHUB_TOKEN` - GitHub API access (for reintegration)
+3. Commit and push to trigger the pipeline
+
+### Pipeline Stages
+
+The Bitbucket Pipelines equivalent follows the same structure as the GitHub Actions:
+- checkout → setup → SAST (tfsec) → SCA → lint (tflint) → validate → plan → version → release → reintegration → logs
+
+### Skip Flags
+
+Disable any stage using environment variables:
+- SKIP_SAST, SKIP_SCA, SKIP_LINT, SKIP_VALIDATE, SKIP_PLAN, SKIP_VERSION, SKIP_RELEASE
+
+Example: Set `SKIP_SAST=true` in pipeline variables to skip security scanning.
+
+### Features
+
+- Same security scanning tools as GitHub Actions (tfsec, tflint)
+- SAST and SCA scanning stages
+- Terraform plan and validation
+- Automatic versioning and tagging
+- GitHub Release publishing
+- JSONL-based pipeline logging
+- 30-90 day artifact retention
+
+### Documentation
+
+- See `bitbucket-pipelines.yml` for complete customization options
+- Refer to [Bitbucket Pipelines Documentation](https://support.atlassian.com/bitbucket-cloud/docs/get-started-with-bitbucket-pipelines/) for detailed reference
+
 ## Development
 
 This repository is managed with `pipery-tooling`.

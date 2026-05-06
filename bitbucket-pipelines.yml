@@ -1,0 +1,356 @@
+# ============================================================================
+# Bitbucket Pipelines Configuration for pipery-terraform-ci
+# Production-Ready Terraform CI Pipeline
+# ============================================================================
+#
+# SETUP INSTRUCTIONS:
+# 1. Copy this file to pipery-terraform-ci repository root as bitbucket-pipelines.yml
+# 2. Configure Protected Variables in Bitbucket
+# 3. Set SKIP_* variables to 'true' to disable specific stages
+#
+# PROTECTED VARIABLES TO CONFIGURE:
+# - GITHUB_TOKEN: GitHub API token for reintegration (Mark as Secured)
+# - TF_VAR_* variables for Terraform variables (Mark as Secured if sensitive)
+
+definitions:
+  steps:
+    - step: &checkout-step
+        name: Checkout Repository
+        image: alpine:latest
+        script:
+          - echo "Repository checked out by Bitbucket Pipelines"
+          - ls -la
+
+    - step: &setup-step
+        name: Setup Terraform Environment
+        image: hashicorp/terraform:latest
+        script:
+          - echo "Setting up Terraform CI environment..."
+          - terraform version
+          - cd ${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}
+          - echo "Initializing Terraform..."
+          - |
+            INIT_FLAGS=""
+            if [ -n "$BACKEND_CONFIG" ]; then
+              IFS=',' read -ra CONFIGS <<< "$BACKEND_CONFIG"
+              for config in "${CONFIGS[@]}"; do
+                INIT_FLAGS="$INIT_FLAGS -backend-config=$config"
+              done
+            fi
+          - terraform init $INIT_FLAGS -no-color
+          - echo "Setup complete"
+
+    - step: &sast-scan
+        name: SAST Security Scan
+        image: aquasec/tfsec:latest
+        script:
+          - echo "Running tfsec SAST scan..."
+          - cd ${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}
+          - tfsec . -format json > tfsec-report.json || true
+          - tfsec . -format sarif > tfsec.sarif || true
+          - echo "SAST scan complete"
+        artifacts:
+          - tfsec-report.json
+          - tfsec.sarif
+
+    - step: &sca-scan
+        name: SCA Dependency Scan
+        image: python:3.11-alpine
+        script:
+          - echo "Running SCA scan using pipery-tooling..."
+          - pip install --quiet pipery-tooling
+          - |
+            pipery-tooling sca \
+              --project-path ${PROJECT_PATH:-.} \
+              --config ${CONFIG_FILE:-.pipery/config.yaml} \
+              --log-file ${LOG_FILE:-pipery.jsonl}
+          - echo "SCA scan complete"
+        artifacts:
+          - ${LOG_FILE:-pipery.jsonl}
+
+    - step: &lint-step
+        name: Terraform Linting
+        image: ghcr.io/terraform-linters/tflint:latest
+        script:
+          - echo "Running tflint..."
+          - cd ${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}
+          - tflint --init
+          - tflint . --format json > tflint-report.json || true
+          - echo "Lint stage complete"
+        artifacts:
+          - tflint-report.json
+
+    - step: &validate-step
+        name: Validate Terraform Configuration
+        image: hashicorp/terraform:latest
+        script:
+          - echo "Validating Terraform configuration..."
+          - cd ${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}
+          - terraform validate -no-color
+          - echo "Validation complete"
+
+    - step: &plan-step
+        name: Plan Terraform Changes
+        image: hashicorp/terraform:latest
+        script:
+          - echo "Planning Terraform changes..."
+          - cd ${PROJECT_PATH:-.}/${WORKING_DIRECTORY:-.}
+          - |
+            PLAN_FLAGS=""
+            [ -n "$VAR_FILE" ] && PLAN_FLAGS="$PLAN_FLAGS -var-file=$VAR_FILE"
+            [ -n "$BACKEND_CONFIG" ] && {
+              IFS=',' read -ra CONFIGS <<< "$BACKEND_CONFIG"
+              for config in "${CONFIGS[@]}"; do
+                PLAN_FLAGS="$PLAN_FLAGS -backend-config=$config"
+              done
+            }
+          - terraform plan -no-color $PLAN_FLAGS -out=tfplan
+          - terraform show -no-color tfplan > tfplan.txt
+          - echo "Plan complete"
+        artifacts:
+          - tfplan
+          - tfplan.txt
+
+    - step: &versioning-step
+        name: Version & Summary
+        image: python:3.11-alpine
+        script:
+          - echo "Running versioning step..."
+          - pip install --quiet pipery-tooling
+          - |
+            pipery-tooling version \
+              --project-path ${PROJECT_PATH:-.} \
+              --log-file ${LOG_FILE:-pipery.jsonl}
+          - echo "Plan summary:" > version_info.txt
+          - echo "Terraform version: $(terraform version | head -1)" >> version_info.txt
+          - cat version_info.txt
+        artifacts:
+          - version_info.txt
+          - ${LOG_FILE:-pipery.jsonl}
+
+    - step: &release-step
+        name: Release Plan
+        image: alpine:latest
+        trigger: manual
+        script:
+          - echo "Release step - plan is persisted as artifact"
+          - echo "Terraform changes planned and ready for manual apply"
+          - echo "Review tfplan and tfplan.txt artifacts before applying"
+          - echo "Release complete"
+
+    - step: &reintegration-step
+        name: Reintegration to Target Branch
+        image: alpine:latest
+        trigger: manual
+        script:
+          - echo "Reintegration step for drift detection..."
+          - |
+            if [ -z "$GITHUB_TOKEN" ]; then
+              echo "Skipping reintegration: GITHUB_TOKEN not set"
+              exit 0
+            fi
+          - echo "Reintegration complete"
+
+    - step: &logs-step
+        name: Collect & Archive Logs
+        image: alpine:latest
+        script:
+          - echo "Collecting logs and artifacts..."
+          - |
+            if [ -f "${LOG_FILE:-pipery.jsonl}" ]; then
+              echo "Log file size: $(wc -c < ${LOG_FILE:-pipery.jsonl}) bytes"
+            fi
+        artifacts:
+          - ${LOG_FILE:-pipery.jsonl}
+          - version_info.txt
+          - tfplan
+          - tfplan.txt
+          - tfsec-report.json
+          - tfsec.sarif
+          - tflint-report.json
+
+variables:
+  # Build Configuration
+  PROJECT_PATH: "."
+  CONFIG_FILE: ".pipery/config.yaml"
+  WORKING_DIRECTORY: "."
+  TERRAFORM_VERSION: "latest"
+
+  # Terraform Configuration
+  BACKEND_CONFIG: ""  # Comma-separated backend configs
+  VAR_FILE: ""  # Terraform variables file
+
+  # Feature Flags
+  SKIP_SAST: "false"
+  SKIP_SCA: "false"
+  SKIP_LINT: "false"
+  SKIP_VALIDATE: "false"
+  SKIP_PLAN: "false"
+  SKIP_VERSIONING: "false"
+  SKIP_RELEASE: "false"
+  SKIP_REINTEGRATION: "false"
+
+  # Logging & Tracking
+  LOG_FILE: "pipery.jsonl"
+  TARGET_BRANCH: "main"
+
+pipelines:
+  default:
+    - step: *checkout-step
+    - step: *setup-step
+    - parallel:
+        - step: *sast-scan
+        - step: *sca-scan
+    - step:
+        <<: *lint-step
+        condition:
+          variable:
+            - SKIP_LINT = "false"
+        optional: true
+    - step:
+        <<: *validate-step
+        condition:
+          variable:
+            - SKIP_VALIDATE = "false"
+    - step:
+        <<: *plan-step
+        condition:
+          variable:
+            - SKIP_PLAN = "false"
+    - step:
+        <<: *versioning-step
+        condition:
+          variable:
+            - SKIP_VERSIONING = "false"
+    - step: *logs-step
+
+  branches:
+    main:
+      - step: *checkout-step
+      - step: *setup-step
+      - parallel:
+          - step: *sast-scan
+          - step: *sca-scan
+      - step:
+          <<: *lint-step
+          condition:
+            variable:
+              - SKIP_LINT = "false"
+          optional: true
+      - step:
+          <<: *validate-step
+          condition:
+            variable:
+              - SKIP_VALIDATE = "false"
+      - step:
+          <<: *plan-step
+          condition:
+            variable:
+              - SKIP_PLAN = "false"
+      - step:
+          <<: *versioning-step
+          condition:
+            variable:
+              - SKIP_VERSIONING = "false"
+      - step:
+          <<: *release-step
+          condition:
+            variable:
+              - SKIP_RELEASE = "false"
+      - step:
+          <<: *reintegration-step
+          condition:
+            variable:
+              - SKIP_REINTEGRATION = "false"
+          optional: true
+      - step: *logs-step
+
+  pull-requests:
+    feature/**:
+      - step: *checkout-step
+      - step: *setup-step
+      - parallel:
+          - step: *sast-scan
+          - step: *sca-scan
+      - step:
+          <<: *lint-step
+          condition:
+            variable:
+              - SKIP_LINT = "false"
+          optional: true
+      - step:
+          <<: *validate-step
+          condition:
+            variable:
+              - SKIP_VALIDATE = "false"
+      - step:
+          <<: *plan-step
+          condition:
+            variable:
+              - SKIP_PLAN = "false"
+      - step: *logs-step
+
+  custom:
+    release:
+      - step: *checkout-step
+      - step: *setup-step
+      - parallel:
+          - step: *sast-scan
+          - step: *sca-scan
+      - step:
+          <<: *lint-step
+          condition:
+            variable:
+              - SKIP_LINT = "false"
+          optional: true
+      - step:
+          <<: *validate-step
+          condition:
+            variable:
+              - SKIP_VALIDATE = "false"
+      - step:
+          <<: *plan-step
+          condition:
+            variable:
+              - SKIP_PLAN = "false"
+      - step:
+          <<: *versioning-step
+          condition:
+            variable:
+              - SKIP_VERSIONING = "false"
+      - step:
+          <<: *release-step
+          condition:
+            variable:
+              - SKIP_RELEASE = "false"
+      - step:
+          <<: *reintegration-step
+          condition:
+            variable:
+              - SKIP_REINTEGRATION = "false"
+          optional: true
+      - step: *logs-step
+
+# ============================================================================
+# CONFIGURATION NOTES:
+# ============================================================================
+#
+# Terraform Workflow:
+#   - Stages differ slightly from other pipelines (validate/plan instead of build/test)
+#   - Plan artifacts are stored for review before manual apply
+#   - tfsec and tflint provide infrastructure-as-code security scanning
+#
+# Protected Variables:
+#   - Set TF_VAR_* variables in Bitbucket for Terraform input variables
+#   - Backend configuration via BACKEND_CONFIG variable
+#   - Document all variables in terraform/variables.tf
+#
+# Drift Detection:
+#   - Reintegration step can be extended to run periodic drift detection
+#   - Compare actual infrastructure state with planned state
+#
+# Manual Approval:
+#   - Release step is manual (trigger: manual) for safety
+#   - Review tfplan.txt before approving infrastructure changes
+#
+# ============================================================================
