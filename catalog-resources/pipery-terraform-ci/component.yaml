@@ -1,0 +1,271 @@
+spec:
+  inputs:
+    inputs:
+    - name: PROJECT_PATH
+      default: .
+      description: Path to the project source tree
+    - name: TERRAFORM_VERSION
+      default: latest
+      description: Terraform runtime version
+  outputs:
+  - name: LOG_FILE
+    description: Pipery JSONL log file with pipeline events
+    default: pipery.jsonl
+variables:
+  PROJECT_PATH: .
+  CONFIG_FILE: .pipery/config.yaml
+  TERRAFORM_VERSION: latest
+  WORKING_DIRECTORY: .
+  BACKEND_CONFIG: ''
+  VAR_FILE: ''
+  SKIP_SAST: 'false'
+  SKIP_SCA: 'false'
+  SKIP_LINT: 'false'
+  SKIP_VALIDATE: 'false'
+  SKIP_PLAN: 'false'
+  SKIP_VERSION: 'false'
+  SKIP_VERSIONING: 'false'
+  SKIP_RELEASE: 'false'
+  SKIP_REINTEGRATION: 'false'
+  LOG_FILE: pipery.jsonl
+  TARGET_BRANCH: main
+stages:
+- checkout
+- setup
+- sast
+- sca
+- lint
+- validate
+- plan
+- versioning
+- release
+- reintegration
+- logs
+checkout:
+  stage: checkout
+  image: alpine:latest
+  script:
+  - echo "Repository checked out"
+setup:
+  stage: setup
+  image: hashicorp/terraform:latest
+  script:
+  - terraform version
+  - cd "${PROJECT_PATH}/${WORKING_DIRECTORY}"
+  - terraform init ${BACKEND_CONFIG:+-backend-config="${BACKEND_CONFIG}"}
+  artifacts:
+    paths:
+    - ${PROJECT_PATH}/${WORKING_DIRECTORY}/.terraform/
+    - ${PROJECT_PATH}/${WORKING_DIRECTORY}/.terraform.lock.hcl
+    expire_in: 1 day
+sast_scan:
+  stage: sast
+  image: aquasec/tfsec:latest
+  script:
+  - bash ./src/step-sast.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_WORKING_DIRECTORY: $WORKING_DIRECTORY
+    INPUT_LOG_FILE: $LOG_FILE
+  allow_failure: true
+  rules:
+  - if: $SKIP_SAST == "true"
+    when: never
+  - when: on_success
+  artifacts:
+    paths:
+    - tfsec-report.json
+    - tfsec.sarif
+    expire_in: 30 days
+sca_scan:
+  stage: sca
+  image: python:3.11-alpine
+  script:
+  - bash ./src/step-sca.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_CONFIG_FILE: $CONFIG_FILE
+    INPUT_LOG_FILE: $LOG_FILE
+  allow_failure: true
+  rules:
+  - if: $SKIP_SCA == "true"
+    when: never
+  - when: on_success
+  artifacts:
+    paths:
+    - $LOG_FILE
+    expire_in: 30 days
+lint:
+  stage: lint
+  image: ghcr.io/terraform-linters/tflint:latest
+  script:
+  - bash ./src/step-lint.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_WORKING_DIRECTORY: $WORKING_DIRECTORY
+    INPUT_LOG_FILE: $LOG_FILE
+  allow_failure: true
+  rules:
+  - if: $SKIP_LINT == "true"
+    when: never
+  - when: on_success
+  artifacts:
+    paths:
+    - tflint-report.json
+    expire_in: 30 days
+validate:
+  stage: validate
+  image: hashicorp/terraform:latest
+  dependencies:
+  - setup
+  script:
+  - bash ./src/step-validate.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_WORKING_DIRECTORY: $WORKING_DIRECTORY
+    INPUT_LOG_FILE: $LOG_FILE
+  rules:
+  - if: $SKIP_VALIDATE == "true"
+    when: never
+  - when: on_success
+plan:
+  stage: plan
+  image: hashicorp/terraform:latest
+  dependencies:
+  - validate
+  script:
+  - bash ./src/step-plan.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_WORKING_DIRECTORY: $WORKING_DIRECTORY
+    INPUT_VAR_FILE: $VAR_FILE
+    INPUT_BACKEND_CONFIG: $BACKEND_CONFIG
+    INPUT_LOG_FILE: $LOG_FILE
+  rules:
+  - if: $SKIP_PLAN == "true"
+    when: never
+  - when: on_success
+  artifacts:
+    paths:
+    - tfplan
+    - tfplan.txt
+    expire_in: 30 days
+versioning:
+  stage: versioning
+  image: python:3.11-alpine
+  script:
+  - bash ./src/step-version.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_LOG_FILE: $LOG_FILE
+  rules:
+  - if: $SKIP_VERSIONING == "true"
+    when: never
+  - when: on_success
+  artifacts:
+    paths:
+    - version_info.txt
+    - $LOG_FILE
+    expire_in: 30 days
+release:
+  stage: release
+  image: hashicorp/terraform:latest
+  script:
+  - bash ./src/step-release.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_LOG_FILE: $LOG_FILE
+  rules:
+  - if: $SKIP_RELEASE == "true"
+    when: never
+  - if: $CI_COMMIT_BRANCH == $TARGET_BRANCH
+    when: manual
+reintegration:
+  stage: reintegration
+  image: alpine:latest
+  script:
+  - bash ./src/step-reintegrate.sh
+  env:
+    INPUT_PROJECT_PATH: $PROJECT_PATH
+    INPUT_LOG_FILE: $LOG_FILE
+  rules:
+  - if: $SKIP_REINTEGRATION == "true"
+    when: never
+  - when: manual
+  allow_failure: true
+publish_logs:
+  stage: logs
+  image: alpine:latest
+  script:
+  - echo "Terraform pipeline complete"
+  artifacts:
+    paths:
+    - $LOG_FILE
+    - version_info.txt
+    - tfplan
+    - tfplan.txt
+    expire_in: 90 days
+  when: always
+dashboard_link:
+  stage: logs
+  image: alpine:latest
+  needs:
+  - publish_logs
+  script:
+  - echo "Generating Pipery Dashboard link..."
+  - '# Get the artifact URL from GitLab API
+
+    ARTIFACT_URL="${CI_SERVER_URL}/api/v4/projects/${CI_PROJECT_ID}/jobs/${CI_JOB_ID}/artifacts"
+
+    echo "Artifact URL: $ARTIFACT_URL"
+
+
+    # URL encode the artifact path
+
+    ENCODED_URL=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1],safe=''''))"
+    "$ARTIFACT_URL")
+
+
+    # Create dashboard link
+
+    DASHBOARD_URL="https://dash.pipery.dev/?artifact=${ENCODED_URL}"
+
+
+    # Output the link in markdown format
+
+    echo ""
+
+    echo "=========================================="
+
+    echo "Pipery Dashboard Link"
+
+    echo "=========================================="
+
+    echo "[$DASHBOARD_URL]($DASHBOARD_URL)"
+
+    echo ""
+
+    echo "Direct URL:"
+
+    echo "$DASHBOARD_URL"
+
+    echo "=========================================="
+
+    echo ""
+
+
+    # Save to artifact file for persistence
+
+    mkdir -p artifacts
+
+    echo "DASHBOARD_URL=$DASHBOARD_URL" > artifacts/dashboard_link.env
+
+    '
+  artifacts:
+    paths:
+    - artifacts/
+    reports:
+      dotenv: artifacts/dashboard_link.env
+    expire_in: 90 days
+  allow_failure: true
+  when: always
